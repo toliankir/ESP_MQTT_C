@@ -80,6 +80,7 @@ void initAP(){
 bool initWifiClient(){
   Serial.print("Connecting to ");
   Serial.println(wifiData.ssid);
+  WiFi.disconnect();
   WiFi.mode(WIFI_STA);
   int count = 0;
   WiFi.begin(wifiData.ssid, wifiData.password);
@@ -129,7 +130,15 @@ void loop() {
   // put your main code here, to run repeatedly:
   server.handleClient();
   long now = millis();
-  if (now - lastMsg > 10000) {
+  if (WiFi.status() != WL_CONNECTED) {
+    initWifiClient();
+    }
+  
+  if (WiFi.status() == WL_CONNECTED && !client.connected()) {
+    initMqtt();
+    }
+  
+  if (now - lastMsg > 10000 && WiFi.status() == WL_CONNECTED && client.connected()) {
     lastMsg = now;
     int humidity = dht.getHumidity();
     int temperature = dht.getTemperature();
