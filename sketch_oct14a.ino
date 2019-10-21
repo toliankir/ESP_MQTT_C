@@ -5,23 +5,37 @@
 #include <PubSubClient.h>
 #include "DHTesp.h"
 
-
 const char* mqtt_server = "m13.cloudmqtt.com";
 const int mqtt_port = 17447;
 const char* mqtt_username = "fjwkxsvo";
 const char* mqtt_password = "0uLbMzS4c4mr";
 long lastMsg = 0;
 char devName[50];
-  
+int pin4State = 0;
+
 ESP8266WebServer server(80);
 DHTesp dht;
 WiFiClient wifiClient;
 
 void callback(char* topic, byte* payload, unsigned int length) {
-  // handle message arrived
+//  Serial.print("Message arrived [");
+//  Serial.print(topic);
+//  Serial.print("] ");
+//  Serial.print(length);
+//  for (int i=0;i<length;i++) {
+//    Serial.print((char)payload[i]);
+//  }
+if (String(topic).indexOf("relay") != -1 && length == 1) {
+  if (topic[String(topic).length()-1]=='0' && payload[0]=='0') {
+    pin4State = 0;
+    }
+  if (topic[String(topic).length()-1]=='0' && payload[0]=='1') {
+    pin4State = 1;
+    }
+  }  
 }
 
-PubSubClient client(mqtt_server, mqtt_port, callback, wifiClient);
+PubSubClient mqttClient(wifiClient);
 
 struct { 
   char ssid[32] = "TP-LINK_home2";
@@ -102,14 +116,18 @@ bool initWifiClient(){
 
 
 void initMqtt(){
-    if (client.connect("esp", mqtt_username, mqtt_password)) {
+    if (mqttClient.connect(devName, mqtt_username, mqtt_password)) {
     Serial.println("MQTT connect");
-//    client.publish("outTopic","hello world");
-//    client.subscribe("inTopic");
+    String sub = String(devName) + "/set/#";
+    Serial.print("Subscribe to: ");
+    Serial.println(sub);
+    mqttClient.subscribe(sub.c_str());
   }
 }
 
 void setup() {
+  pinMode(4, OUTPUT);
+
   // put your setup code here, to run once:
   //  EEPROM.begin(512);
   //  EEPROM.get(0, wifiData);
@@ -118,6 +136,8 @@ void setup() {
   Serial.begin(115200);
   if (initWifiClient()) {
       dht.setup(2, DHTesp::DHT11);
+      mqttClient.setServer(mqtt_server, mqtt_port);
+      mqttClient.setCallback(callback);
       initMqtt();
     } else {
       Serial.println("WiFi connection error.");  
@@ -127,26 +147,30 @@ void setup() {
 
 
 void loop() {
-  // put your main code here, to run repeatedly:
+  digitalWrite(4, pin4State);
   server.handleClient();
+  mqttClient.loop();
   long now = millis();
+  
   if (WiFi.status() != WL_CONNECTED) {
     initWifiClient();
     }
-  
-  if (WiFi.status() == WL_CONNECTED && !client.connected()) {
+  if (WiFi.status() == WL_CONNECTED && !mqttClient.connected()) {
     initMqtt();
     }
-  
-  if (now - lastMsg > 10000 && WiFi.status() == WL_CONNECTED && client.connected()) {
+
+  if (now - lastMsg > 10000 && WiFi.status() == WL_CONNECTED && mqttClient.connected()) {
     lastMsg = now;
+
     int humidity = dht.getHumidity();
     int temperature = dht.getTemperature();
     String msg = "{\"humidity\": " + String(humidity) +", \"temperature\": "+ String(temperature) +" }";
-    char buf[msg.length()];
-    msg.toCharArray(buf, msg.length()+1);
-//    client.publish(devName, buf);
-    client.publish("ESP/sensor", buf);
-  }
+    String topic = String(devName) + "/sensor";
+    mqttClient.publish(topic.c_str() , msg.c_str());
+    
+    msg = "{\"state\": " + String(pin4State) +" }";
+    topic = String(devName) + "/relay0";
+    mqttClient.publish(topic.c_str() , msg.c_str());
+    }
 
 }
